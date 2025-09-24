@@ -1,0 +1,91 @@
+
+services:
+  # ------------------- ORDER SERVICE -------------------
+  order-service:
+    build:
+      context: .
+      dockerfile: orders-service/Dockerfile   # <- use 'order-service/Dockerfile' if you renamed the folder
+    container_name: oms-order
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # --- DB ---
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/orderdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: admin
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+#      SPRING_FLYWAY_ENABLED: "false"
+#      SPRING_FLYWAY_URL: jdbc:mysql://mysql:3306/orderdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+#      SPRING_FLYWAY_USER: root
+#      SPRING_FLYWAY_PASSWORD: admin
+      # --- Kafka (container-to-container) ---
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # Optional: raise logging if needed
+      # LOGGING_LEVEL_ORG_HIBERNATE_SQL: INFO
+    ports:
+      - "8081:8081"
+
+  # ------------------- PAYMENT SERVICE -------------------
+  payment-service:
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
+    container_name: oms-payment
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/paymentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: admin
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_FLYWAY_ENABLED: "false"
+      SPRING_FLYWAY_URL: jdbc:mysql://mysql:3306/paymentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_FLYWAY_USER: root
+      SPRING_FLYWAY_PASSWORD: admin
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8082:8082" 
+
+  # ------------------- INVENTORY SERVICE -------------------
+  inventory-service:
+    build:
+      context: .
+      dockerfile: inventory-service/Dockerfile
+    container_name: oms-inventory
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/inventorydb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: admin
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_FLYWAY_ENABLED: "false"
+      SPRING_FLYWAY_URL: jdbc:mysql://mysql:3306/inventorydb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_FLYWAY_USER: root
+      SPRING_FLYWAY_PASSWORD: admin
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8083:8083"
+
+  # ------------------- NOTIFICATION SERVICE -------------------
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: oms-notification
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8084:8084"
