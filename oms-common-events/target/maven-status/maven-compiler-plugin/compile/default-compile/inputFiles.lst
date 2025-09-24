@@ -1,9 +1,0 @@
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\serde\JsonEventDeserializer.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\order\OrderUpdatedEvent.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\payment\PaymentAuthorizedEvent.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\order\OrderCreatedEvent.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\payment\PaymentCapturedEvent.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\inventory\InventoryReservedEvent.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\inventory\InventoryFailedEvent.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\payment\PaymentFailedEvent.java
-C:\Users\Nikita\Desktop\onlinebooking\oms-common-events\src\main\java\com\onlineorder\oms\events\serde\JsonEventSerializer.java
