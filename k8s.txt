@@ -1,0 +1,10 @@
+cd C:\Users\Nikita\Desktop\onlinebooking\kube-manifests
+
+kubectl apply -f namespace.yaml
+kubectl -n oms apply -f mysql-secret.yaml -f mysql-initdb-configmap.yaml -f mysql-statefulset.yaml
+kubectl -n oms apply -f kafka-deployment.yaml 
+kubectl -n oms apply -f kafka-topics-job.yaml
+kubectl -n oms apply -f order-deployment.yaml -f payment-deployment.yaml -f inventory-deployment.yaml -f notification-deployment.yaml
+
+kubectl -n oms get pods -w
+

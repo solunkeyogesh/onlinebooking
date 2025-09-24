@@ -28,7 +28,20 @@ spring:
 #    password: admin
 
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: localhost:9092   # or kafka:29092 if app runs in docker
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        # optional: avoid adding type headers
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: order-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*" 
 
 logging:
   level:

@@ -4,8 +4,23 @@ server:
 spring:
   application:
     name: notification-service
+ 
   kafka:
-    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+      # Wrap both key and value with ErrorHandlingDeserializer
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        # Delegate deserializers
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+
+        # Json settings
+        spring.json.trusted.packages: "com.onlineorder.oms.*"
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.onlineorder.oms.events.order.OrderCreatedEvent
 
 logging:
   level:

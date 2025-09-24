@@ -3,9 +3,11 @@ package com.onlineorder.oms.order.config;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.autoconfigure.kafka.DefaultKafkaProducerFactoryCustomizer;
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.*;
+import org.springframework.kafka.support.serializer.JsonSerializer;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -14,10 +16,14 @@ import java.util.Map;
 public class KafkaConfig {
 
     @Bean
-    public ProducerFactory<String, Object> producerFactory(org.springframework.boot.autoconfigure.kafka.KafkaProperties props) {
+    public ProducerFactory<String, Object> producerFactory(KafkaProperties props) {
         Map<String, Object> config = new HashMap<>(props.buildProducerProperties(null));
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        // Value serializer is auto-configured to JsonSerializer by Spring Boot if spring-kafka is on classpath
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class); // ✅ ensure JSON serialization
+
+        // optional: remove type headers if you don’t want them
+        config.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, false);
+
         return new DefaultKafkaProducerFactory<>(config);
     }
 
@@ -26,7 +32,7 @@ public class KafkaConfig {
         return new KafkaTemplate<>(pf);
     }
 
-    // if you want to tweak defaults:
+    // if you want to tweak defaults (acks, idempotence, etc.)
     @Bean
     public DefaultKafkaProducerFactoryCustomizer tuneProducer() {
         return factory -> {

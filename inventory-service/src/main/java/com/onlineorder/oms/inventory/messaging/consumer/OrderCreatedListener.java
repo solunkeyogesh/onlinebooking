@@ -17,13 +17,13 @@ import java.math.BigDecimal;
 @KafkaListener(topics = "order.created", groupId = "inventory-service")
 public class OrderCreatedListener {
 
-  private final InventoryReserver reserver;
+  //private final InventoryReserver reserver;
 
   @KafkaHandler
   public void onMessage(OrderCreatedEvent evt) {
     log.info("OrderCreated received orderId={} items={}", evt.getOrderId(), evt.getItems().size());
     for (OrderItemDto item : evt.getItems()) {
-      reserver.reserve(evt.getOrderId(), item.getSkuCode(), BigDecimal.valueOf(item.getQuantity()));
+      //reserver.reserve(evt.getOrderId(), item.getSkuCode(), BigDecimal.valueOf(item.getQuantity()));
     }
   }
 }
