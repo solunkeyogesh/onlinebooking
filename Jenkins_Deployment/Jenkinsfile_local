@@ -1,0 +1,143 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    durabilityHint('PERFORMANCE_OPTIMIZED')
+  }
+
+  parameters {
+    string(name: 'K8S_NAMESPACE',   defaultValue: 'oms',             description: 'Kubernetes namespace')
+    string(name: 'DEPLOYMENT_NAME', defaultValue: 'order-service',   description: 'K8s Deployment name to update')
+    string(name: 'CONTAINER_NAME',  defaultValue: 'order-service',   description: 'Container name inside the Deployment')
+    string(name: 'IMAGE_NAME',      defaultValue: 'order-service',   description: 'Local Docker image name')
+    string(name: 'KUBE_MANIFESTS_DIR', defaultValue: 'kube-manifests', description: 'Path to K8s YAMLs in repo')
+  }
+
+  environment {
+    // will be set/overwritten in the Checkout stage if GIT_COMMIT is available
+    IMAGE_TAG = 'dev'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+        script {
+          // Prefer short git SHA; fallback to timestamp if not available
+          def shortSha = (env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : null)
+          if (shortSha) {
+            env.IMAGE_TAG = shortSha
+          } else {
+            env.IMAGE_TAG = powershell(returnStdout: true, script: 'Get-Date -Format "yyyyMMddHHmmss"').trim()
+          }
+          echo "Using IMAGE_TAG = ${env.IMAGE_TAG}"
+        }
+      }
+    }
+
+    stage('Tools sanity (PowerShell)') {
+      steps {
+        powershell '''
+          $ErrorActionPreference = "Stop"
+          Write-Host "Docker:"; docker version
+          Write-Host "Kubectl:"; kubectl version --client
+          Write-Host "Minikube:"; minikube status
+        '''
+      }
+    }
+
+    stage('Build & Test (Maven)') {
+      steps {
+        powershell '''
+          $ErrorActionPreference = "Stop"
+          if (Test-Path ".\\mvnw.cmd") {
+            .\\mvnw.cmd -v
+            .\\mvnw.cmd -B -DskipTests=false clean verify
+          } else {
+            mvn -v
+            mvn -B -DskipTests=false clean verify
+          }
+        '''
+        junit '**/target/surefire-reports/*.xml'
+      }
+    }
+
+    stage('Docker Build (local)') {
+      steps {
+        powershell '''
+          $ErrorActionPreference = "Stop"
+          docker build -t ${env:IMAGE_NAME}:${env:IMAGE_TAG} .
+          docker images --format "table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}" | findstr ${env:IMAGE_NAME}
+        '''
+      }
+    }
+
+    stage('Load image into Minikube') {
+      steps {
+        powershell '''
+          $ErrorActionPreference = "Stop"
+          # Ensure minikube is running; if not, start it (idempotent)
+          minikube status | Out-Host
+          # Load the freshly built image into the node's container runtime
+          minikube image load ${env:IMAGE_NAME}:${env:IMAGE_TAG}
+        '''
+      }
+    }
+
+    stage('Deploy to local Kubernetes') {
+      steps {
+        powershell '''
+          $ErrorActionPreference = "Stop"
+
+          # Make sure namespace exists
+          if (-not (kubectl get ns ${env:K8S_NAMESPACE} --no-headers 2>$null)) {
+            kubectl create ns ${env:K8S_NAMESPACE}
+          }
+
+          # Apply all manifests (Service/Deployment/StatefulSet etc.)
+          kubectl -n ${env:K8S_NAMESPACE} apply -f ${env:KUBE_MANIFESTS_DIR}
+
+          # Update the image in the target Deployment to our local tag
+          kubectl -n ${env:K8S_NAMESPACE} set image deployment/${env:DEPLOYMENT_NAME} `
+            ${env:CONTAINER_NAME}=${env:IMAGE_NAME}:${env:IMAGE_TAG} --record=true
+
+          # Wait for rollout to complete
+          kubectl -n ${env:K8S_NAMESPACE} rollout status deployment/${env:DEPLOYMENT_NAME} --timeout=300s
+        '''
+      }
+    }
+
+    stage('Post-deploy smoke info') {
+      steps {
+        powershell '''
+          $ErrorActionPreference = "SilentlyContinue"
+          Write-Host "---- Pod summary ----"
+          kubectl -n ${env:K8S_NAMESPACE} get pods -o wide
+          Write-Host "---- Recent events ----"
+          kubectl -n ${env:K8S_NAMESPACE} get events --sort-by=.lastTimestamp | Select-Object -Last 30 | Out-String | Write-Host
+        '''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Deployed ${params.DEPLOYMENT_NAME}/${params.CONTAINER_NAME} with image ${params.IMAGE_NAME}:${env.IMAGE_TAG} to Minikube (namespace ${params.K8S_NAMESPACE})."
+    }
+    failure {
+      echo "❌ Build/Deploy failed. Collecting diagnostics…"
+      powershell '''
+        $ErrorActionPreference = "SilentlyContinue"
+        kubectl -n ${env:K8S_NAMESPACE} describe deploy/${env:DEPLOYMENT_NAME} | Out-String | Write-Host
+        kubectl -n ${env:K8S_NAMESPACE} get pods -o wide | Out-String | Write-Host
+        kubectl -n ${env:K8S_NAMESPACE} get events --sort-by=.lastTimestamp | Select-Object -Last 50 | Out-String | Write-Host
+      '''
+    }
+    always {
+      cleanWs(deleteDirs: true, notFailBuild: true)
+    }
+  }
+}

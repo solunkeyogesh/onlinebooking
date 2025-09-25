@@ -1,0 +1,136 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    durabilityHint('PERFORMANCE_OPTIMIZED')
+  }
+
+  parameters {
+    choice(name: 'DEPLOY_TARGET', choices: ['MINIKUBE', 'EKS'], description: 'Where to deploy')
+    string(name: 'EKS_CLUSTER', defaultValue: 'eksdemo1', description: 'EKS cluster name (for EKS deploy)')
+    string(name: 'K8S_NAMESPACE', defaultValue: 'oms', description: 'Kubernetes namespace')
+    string(name: 'DEPLOYMENT_NAME', defaultValue: 'order-service', description: 'K8s Deployment to update')
+    string(name: 'CONTAINER_NAME', defaultValue: 'order-service', description: 'Container name inside the Deployment')
+    string(name: 'IMAGE_NAME', defaultValue: 'order-service', description: 'Local Docker image name')
+    string(name: 'ECR_REPO', defaultValue: 'cicd-pipeline', description: 'ECR repository name')
+  }
+
+  environment {
+    AWS_ACCOUNT_ID = '784012530518'
+    AWS_REGION     = 'us-east-1'
+    ECR_REGISTRY   = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+    // Short git SHA as image tag
+    IMAGE_TAG      = "${env.GIT_COMMIT?.take(7) ?: 'dev'}"
+    IMAGE_URI      = "${env.ECR_REGISTRY}/${params.ECR_REPO}:${env.IMAGE_TAG}"
+    // Path to k8s manifests in your repo:
+    KUBE_MANIFESTS_DIR = 'kube-manifests'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+        script {
+          // Fallback when building from "Build with Parameters" without SCM context
+          if (!env.GIT_COMMIT) { env.IMAGE_TAG = sh(script: "date +%Y%m%d%H%M%S", returnStdout: true).trim() }
+        }
+      }
+    }
+
+    stage('Build & Test') {
+      steps {
+        sh '''
+          if [ -x ./mvnw ]; then MVN=./mvnw; else MVN=mvn; fi
+          $MVN -v
+          $MVN -B -DskipTests=false clean verify
+        '''
+        junit '**/target/surefire-reports/*.xml'
+      }
+    }
+
+    stage('Docker Build') {
+      steps {
+        sh '''
+          docker version
+          docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+          docker image ls | grep ${IMAGE_NAME} || true
+        '''
+      }
+    }
+
+    stage('Login & Push to ECR') {
+      when { expression { params.DEPLOY_TARGET == 'EKS' } }
+      steps {
+        withEnv(["AWS_DEFAULT_REGION=${AWS_REGION}"]) {
+          sh '''
+            aws --version
+            # Ensure repo exists
+            aws ecr describe-repositories --repository-names ${ECR_REPO} >/dev/null 2>&1 \
+              || aws ecr create-repository --repository-names ${ECR_REPO}
+
+            aws ecr get-login-password --region ${AWS_REGION} \
+              | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+            docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_URI}
+            docker push ${IMAGE_URI}
+            printf "IMAGE_URI=%s\nIMAGE_TAG=%s\n" "${IMAGE_URI}" "${IMAGE_TAG}" > exported-vars.env
+          '''
+          archiveArtifacts artifacts: 'exported-vars.env', fingerprint: true
+        }
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        script {
+          if (params.DEPLOY_TARGET == 'MINIKUBE') {
+            // local dev: load image into the minikube node & apply manifests
+            sh '''
+              # Load local image into minikube node
+              minikube image load ${IMAGE_NAME}:${IMAGE_TAG}
+              # Apply manifests (Service/Deployment/StatefulSet, etc.)
+              kubectl -n ${K8S_NAMESPACE} apply -f ${KUBE_MANIFESTS_DIR}
+              # Update the specified Deployment to the new image tag
+              kubectl -n ${K8S_NAMESPACE} set image deployment/${DEPLOYMENT_NAME} ${CONTAINER_NAME}=${IMAGE_NAME}:${IMAGE_TAG} --record=true
+              kubectl -n ${K8S_NAMESPACE} rollout status deployment/${DEPLOYMENT_NAME} --timeout=180s
+            '''
+          } else {
+            // EKS: use pushed ECR image
+            sh '''
+              aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
+              kubectl -n ${K8S_NAMESPACE} apply -f ${KUBE_MANIFESTS_DIR}
+              kubectl -n ${K8S_NAMESPACE} set image deployment/${DEPLOYMENT_NAME} ${CONTAINER_NAME}=${IMAGE_URI} --record=true
+              kubectl -n ${K8S_NAMESPACE} rollout status deployment/${DEPLOYMENT_NAME} --timeout=300s
+            '''
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "Deployed ${params.DEPLOYMENT_NAME} (${params.CONTAINER_NAME}) with tag ${IMAGE_TAG} to ${params.DEPLOY_TARGET}"
+    }
+    failure {
+      echo "Build/Deploy failed. Check stage logs above."
+      // Optional: collect pod describe/events for quick triage
+      script {
+        sh '''
+          set +e
+          echo "------ K8s Describe (if available) ------"
+          kubectl -n ${K8S_NAMESPACE} get deploy/${DEPLOYMENT_NAME} 2>/dev/null && \
+          kubectl -n ${K8S_NAMESPACE} describe deploy/${DEPLOYMENT_NAME} || true
+          echo "------ Recent Events ------"
+          kubectl -n ${K8S_NAMESPACE} get events --sort-by=.lastTimestamp | tail -n 50 || true
+        '''
+      }
+    }
+    always {
+      cleanWs(deleteDirs: true, notFailBuild: true)
+    }
+  }
+}
